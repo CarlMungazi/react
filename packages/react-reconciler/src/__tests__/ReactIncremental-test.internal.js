@@ -35,14 +35,12 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
   });
 
   it('should render a simple component, in steps if needed', () => {
-    let renderCallbackCalled = false;
-    let barCalled = false;
     function Bar() {
-      barCalled = true;
+      ReactNoop.yield('Bar');
       return (
         <span>
           <div>Hello World</div>
@@ -50,26 +48,17 @@ describe('ReactIncremental', () => {
       );
     }
 
-    let fooCalled = false;
     function Foo() {
-      fooCalled = true;
+      ReactNoop.yield('Foo');
       return [<Bar key="a" isBar={true} />, <Bar key="b" isBar={true} />];
     }
 
-    ReactNoop.render(<Foo />, () => (renderCallbackCalled = true));
-    expect(fooCalled).toBe(false);
-    expect(barCalled).toBe(false);
-    expect(renderCallbackCalled).toBe(false);
+    ReactNoop.render(<Foo />, () => ReactNoop.yield('callback'));
     // Do one step of work.
-    ReactNoop.flushDeferredPri(7 + 5);
-    expect(fooCalled).toBe(true);
-    expect(barCalled).toBe(false);
-    expect(renderCallbackCalled).toBe(false);
+    expect(ReactNoop.flushNextYield()).toEqual(['Foo']);
+
     // Do the rest of the work.
-    ReactNoop.flushDeferredPri(50);
-    expect(fooCalled).toBe(true);
-    expect(barCalled).toBe(true);
-    expect(renderCallbackCalled).toBe(true);
+    expect(ReactNoop).toFlushAndYield(['Bar', 'Bar', 'callback']);
   });
 
   it('updates a previous render', () => {
@@ -107,7 +96,7 @@ describe('ReactIncremental', () => {
     ReactNoop.render(<Foo text="foo" />, () =>
       ops.push('renderCallbackCalled'),
     );
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       'Foo',
@@ -125,7 +114,7 @@ describe('ReactIncremental', () => {
     ReactNoop.render(<Foo text="bar" />, () =>
       ops.push('secondRenderCallbackCalled'),
     );
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     // TODO: Test bail out of host components. This is currently unobservable.
 
@@ -140,15 +129,13 @@ describe('ReactIncremental', () => {
   });
 
   it('can cancel partially rendered work and restart', () => {
-    let ops = [];
-
     function Bar(props) {
-      ops.push('Bar');
+      ReactNoop.yield('Bar');
       return <div>{props.children}</div>;
     }
 
     function Foo(props) {
-      ops.push('Foo');
+      ReactNoop.yield('Foo');
       return (
         <div>
           <Bar>{props.text}</Bar>
@@ -159,36 +146,24 @@ describe('ReactIncremental', () => {
 
     // Init
     ReactNoop.render(<Foo text="foo" />);
-    ReactNoop.flush();
-
-    ops = [];
+    expect(ReactNoop).toFlushAndYield(['Foo', 'Bar', 'Bar']);
 
     ReactNoop.render(<Foo text="bar" />);
     // Flush part of the work
-    ReactNoop.flushDeferredPri(20 + 5);
-
-    expect(ops).toEqual(['Foo', 'Bar']);
-
-    ops = [];
+    expect(ReactNoop).toFlushAndYieldThrough(['Foo', 'Bar']);
 
     // This will abort the previous work and restart
     ReactNoop.flushSync(() => ReactNoop.render(null));
     ReactNoop.render(<Foo text="baz" />);
-    ReactNoop.clearYields();
 
     // Flush part of the new work
-    ReactNoop.flushDeferredPri(20 + 5);
-
-    expect(ops).toEqual(['Foo', 'Bar']);
+    expect(ReactNoop).toFlushAndYieldThrough(['Foo', 'Bar']);
 
     // Flush the rest of the work which now includes the low priority
-    ReactNoop.flush(20);
-
-    expect(ops).toEqual(['Foo', 'Bar', 'Bar']);
+    expect(ReactNoop).toFlushAndYield(['Bar']);
   });
 
   it('should call callbacks even if updates are aborted', () => {
-    const ops = [];
     let inst;
 
     class Foo extends React.Component {
@@ -211,36 +186,31 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     inst.setState(
       () => {
-        ops.push('setState1');
+        ReactNoop.yield('setState1');
         return {text: 'bar'};
       },
-      () => ops.push('callback1'),
+      () => ReactNoop.yield('callback1'),
     );
 
     // Flush part of the work
-    ReactNoop.flushDeferredPri(20 + 5);
-
-    expect(ops).toEqual(['setState1']);
+    expect(ReactNoop).toFlushAndYieldThrough(['setState1']);
 
     // This will abort the previous work and restart
     ReactNoop.flushSync(() => ReactNoop.render(<Foo />));
     inst.setState(
       () => {
-        ops.push('setState2');
+        ReactNoop.yield('setState2');
         return {text2: 'baz'};
       },
-      () => ops.push('callback2'),
+      () => ReactNoop.yield('callback2'),
     );
 
     // Flush the rest of the work which now includes the low priority
-    ReactNoop.flush();
-
-    expect(ops).toEqual([
-      'setState1',
+    expect(ReactNoop).toFlushAndYield([
       'setState1',
       'setState2',
       'callback1',
@@ -250,20 +220,18 @@ describe('ReactIncremental', () => {
   });
 
   it('can deprioritize unfinished work and resume it later', () => {
-    let ops = [];
-
     function Bar(props) {
-      ops.push('Bar');
+      ReactNoop.yield('Bar');
       return <div>{props.children}</div>;
     }
 
     function Middle(props) {
-      ops.push('Middle');
+      ReactNoop.yield('Middle');
       return <span>{props.children}</span>;
     }
 
     function Foo(props) {
-      ops.push('Foo');
+      ReactNoop.yield('Foo');
       return (
         <div>
           <Bar>{props.text}</Bar>
@@ -280,25 +248,20 @@ describe('ReactIncremental', () => {
 
     // Init
     ReactNoop.render(<Foo text="foo" />);
-    ReactNoop.flush();
-
-    expect(ops).toEqual(['Foo', 'Bar', 'Bar', 'Middle', 'Middle']);
-
-    ops = [];
+    expect(ReactNoop).toFlushAndYield([
+      'Foo',
+      'Bar',
+      'Bar',
+      'Middle',
+      'Middle',
+    ]);
 
     // Render part of the work. This should be enough to flush everything except
     // the middle which has lower priority.
     ReactNoop.render(<Foo text="bar" />);
-    ReactNoop.flushDeferredPri(40);
-
-    expect(ops).toEqual(['Foo', 'Bar', 'Bar']);
-
-    ops = [];
-
+    expect(ReactNoop).toFlushAndYieldThrough(['Foo', 'Bar', 'Bar']);
     // Flush only the remaining work
-    ReactNoop.flush();
-
-    expect(ops).toEqual(['Middle', 'Middle']);
+    expect(ReactNoop).toFlushAndYield(['Middle', 'Middle']);
   });
 
   it('can deprioritize a tree from without dropping work', () => {
@@ -334,7 +297,7 @@ describe('ReactIncremental', () => {
     ReactNoop.flushSync(() => {
       ReactNoop.render(<Foo text="foo" />);
     });
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Foo', 'Bar', 'Bar', 'Middle', 'Middle']);
 
     ops = [];
@@ -349,7 +312,7 @@ describe('ReactIncremental', () => {
 
     // The hidden content was deprioritized from high to low priority. A low
     // priority callback should have been scheduled. Flush it now.
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Middle', 'Middle']);
   });
 
@@ -412,7 +375,7 @@ describe('ReactIncremental', () => {
     ops = [];
 
     // Flush the rest to make sure that the bailout didn't block this work.
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Middle']);
   });
 
@@ -492,7 +455,7 @@ describe('ReactIncremental', () => {
     // as a single batch. Therefore, it is correct that Middle should be in the
     // middle. If it occurs after the two "Bar" components then it was flushed
     // after them which is not correct.
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Bar', 'Middle', 'Bar']);
 
     ops = [];
@@ -510,7 +473,7 @@ describe('ReactIncremental', () => {
     // it. If the priority levels aren't down-prioritized correctly this may
     // abort rendering of the down-prioritized content.
     ReactNoop.render(<Foo text="bar" />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Foo', 'Bar', 'Bar']);
   });
 
@@ -551,7 +514,7 @@ describe('ReactIncremental', () => {
     foo.setState({value: 'bar'});
 
     ops = [];
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Foo', 'Bar']);
   });
 
@@ -614,7 +577,7 @@ describe('ReactIncremental', () => {
     foo.setState({value: 'bar'});
 
     ops = [];
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(constructorCount).toEqual(1);
     expect(ops).toEqual([
       'componentWillMount: foo',
@@ -676,7 +639,7 @@ describe('ReactIncremental', () => {
     // Interrupt the rendering with a quick update. This should not touch the
     // middle content.
     ReactNoop.render(<Foo text="foo" text2="bar" step={0} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     // We've now rendered the entire tree but we didn't have to redo the work
     // done by the first Middle and Bar already.
@@ -711,7 +674,7 @@ describe('ReactIncremental', () => {
     // Since we did nothing to the middle subtree during the interruption,
     // we should be able to reuse the reconciliation work that we already did
     // without restarting.
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Middle']);
   });
 
@@ -764,7 +727,7 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Parent />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     ops = [];
 
     // Begin working on a low priority update to Child, but stop before
@@ -784,7 +747,7 @@ describe('ReactIncremental', () => {
     // Continue the low pri work. The work on Child and GrandChild was memoized
     // so they should not be worked on again.
     ops = [];
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual([
       // No Child
       // No Grandchild
@@ -840,7 +803,7 @@ describe('ReactIncremental', () => {
 
     // Init
     ReactNoop.render(<Foo text="foo" step={0} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual(['Foo', 'Bar', 'Content', 'Middle', 'Bar', 'Middle']);
 
@@ -873,7 +836,7 @@ describe('ReactIncremental', () => {
     // Since we did nothing to the middle subtree during the interruption,
     // we should be able to reuse the reconciliation work that we already did
     // without restarting.
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Middle']);
   });
 
@@ -894,16 +857,16 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo step={1} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     ops = [];
     ReactNoop.render(<Foo step={2} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['shouldComponentUpdate: false']);
 
     ops = [];
     ReactNoop.render(<Foo step={3} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual([
       // If the memoized props were not updated during last bail out, sCU will
       // keep returning false.
@@ -934,10 +897,10 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(instance.state).toEqual({a: 'a'});
     instance.setState({b: 'b'});
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(instance.state).toEqual({a: 'a', b: 'b'});
   });
 
@@ -963,12 +926,12 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     // Call setState multiple times before flushing
     instance.setState({b: 'b'});
     instance.setState({c: 'c'});
     instance.setState({d: 'd'});
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(instance.state).toEqual({a: 'a', b: 'b', c: 'c', d: 'd'});
   });
 
@@ -998,15 +961,15 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo multiplier={2} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(instance.state.num).toEqual(1);
     instance.setState(updater);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(instance.state.num).toEqual(2);
 
     instance.setState(updater);
     ReactNoop.render(<Foo multiplier={3} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(instance.state.num).toEqual(6);
   });
 
@@ -1040,10 +1003,10 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo multiplier={2} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     instance.setState(updater);
     instance.setState(updater, callback);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(instance.state.num).toEqual(4);
     expect(instance.state.called).toEqual(true);
   });
@@ -1067,11 +1030,11 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     instance.setState({b: 'b'});
     instance.setState({c: 'c'});
     instance.updater.enqueueReplaceState(instance, {d: 'd'});
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(instance.state).toEqual({d: 'd'});
   });
 
@@ -1108,10 +1071,10 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Foo', 'Bar', 'Baz']);
     instance.forceUpdate();
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Foo', 'Bar', 'Baz', 'Bar', 'Baz']);
   });
 
@@ -1128,14 +1091,14 @@ describe('ReactIncremental', () => {
 
     const foo = React.createRef(null);
     ReactNoop.render(<Foo ref={foo} b={0} />);
-    expect(ReactNoop.flush()).toEqual(['A: 0, B: 0']);
+    expect(ReactNoop).toFlushAndYield(['A: 0, B: 0']);
 
     a = 1;
     foo.current.forceUpdate();
-    expect(ReactNoop.flush()).toEqual(['A: 1, B: 0']);
+    expect(ReactNoop).toFlushAndYield(['A: 1, B: 0']);
 
     ReactNoop.render(<Foo ref={foo} b={0} />);
-    expect(ReactNoop.flush()).toEqual([]);
+    expect(ReactNoop).toFlushAndYield([]);
   });
 
   xit('can call sCU while resuming a partly mounted component', () => {
@@ -1230,7 +1193,7 @@ describe('ReactIncremental', () => {
         <Baz />
       </div>,
     );
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     ops = [];
 
@@ -1251,7 +1214,7 @@ describe('ReactIncremental', () => {
 
     ops = [];
 
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual(['Bar:A-1', 'Baz']);
   });
 
@@ -1300,7 +1263,7 @@ describe('ReactIncremental', () => {
     ops = [];
 
     ReactNoop.render(<App x={1} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       'App',
@@ -1348,7 +1311,7 @@ describe('ReactIncremental', () => {
 
     ops = [];
     ReactNoop.render(<App x={1} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       'App',
@@ -1403,7 +1366,7 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<App x={0} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       'App',
@@ -1431,7 +1394,7 @@ describe('ReactIncremental', () => {
     ops = [];
 
     ReactNoop.render(<App x={2} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       'App',
@@ -1469,7 +1432,7 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<LifeCycle />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual(['getDerivedStateFromProps', 'render']);
     expect(instance.state).toEqual({foo: 'foo'});
@@ -1477,7 +1440,7 @@ describe('ReactIncremental', () => {
     ops = [];
 
     instance.changeState();
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       'getDerivedStateFromProps',
@@ -1509,7 +1472,7 @@ describe('ReactIncremental', () => {
 
     const child = React.createRef(null);
     ReactNoop.render(<Parent />);
-    expect(ReactNoop.flush()).toEqual([
+    expect(ReactNoop).toFlushAndYield([
       'getDerivedStateFromProps',
       'Parent',
       'Child',
@@ -1517,7 +1480,7 @@ describe('ReactIncremental', () => {
 
     // Schedule an update on the child. The parent should not re-render.
     child.current.setState({});
-    expect(ReactNoop.flush()).toEqual(['Child']);
+    expect(ReactNoop).toFlushAndYield(['Child']);
   });
 
   xit('does not call componentWillReceiveProps for state-only updates', () => {
@@ -1590,7 +1553,7 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<App y={0} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       'App',
@@ -1621,7 +1584,7 @@ describe('ReactIncremental', () => {
     // LifeCycle
     instances[1].tick();
 
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       // no componentWillReceiveProps
@@ -1654,7 +1617,7 @@ describe('ReactIncremental', () => {
     // Next we will update LifeCycle directly but not with new props.
     instances[1].tick();
 
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       // This should not trigger another componentWillReceiveProps because
@@ -1709,7 +1672,7 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<App x={0} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       'componentWillMount',
@@ -1722,7 +1685,7 @@ describe('ReactIncremental', () => {
 
     // Update to same props
     ReactNoop.render(<App x={0} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(ops).toEqual([
       'componentWillReceiveProps',
@@ -1752,7 +1715,7 @@ describe('ReactIncremental', () => {
 
     // ...but we'll interrupt it to rerender the same props.
     ReactNoop.render(<App x={1} />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     // We can bail out this time, but we must call componentDidUpdate.
     expect(ops).toEqual([
@@ -1778,7 +1741,7 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     ops = [];
 
     ReactNoop.flushSync(() => {
@@ -1820,7 +1783,7 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Foo />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     ops = [];
 
     function updater({n}) {
@@ -1835,7 +1798,7 @@ describe('ReactIncremental', () => {
     instance.setState(updater, () => ops.push('third callback'));
 
     expect(() => {
-      ReactNoop.flush();
+      expect(ReactNoop).toFlushWithoutYielding();
     }).toThrow('callback error');
 
     // The third callback isn't called because the second one throws
@@ -1844,8 +1807,6 @@ describe('ReactIncremental', () => {
   });
 
   it('merges and masks context', () => {
-    const ops = [];
-
     class Intl extends React.Component {
       static childContextTypes = {
         locale: PropTypes.string,
@@ -1856,7 +1817,7 @@ describe('ReactIncremental', () => {
         };
       }
       render() {
-        ops.push('Intl ' + JSON.stringify(this.context));
+        ReactNoop.yield('Intl ' + JSON.stringify(this.context));
         return this.props.children;
       }
     }
@@ -1871,7 +1832,7 @@ describe('ReactIncremental', () => {
         };
       }
       render() {
-        ops.push('Router ' + JSON.stringify(this.context));
+        ReactNoop.yield('Router ' + JSON.stringify(this.context));
         return this.props.children;
       }
     }
@@ -1881,7 +1842,7 @@ describe('ReactIncremental', () => {
         locale: PropTypes.string,
       };
       render() {
-        ops.push('ShowLocale ' + JSON.stringify(this.context));
+        ReactNoop.yield('ShowLocale ' + JSON.stringify(this.context));
         return this.context.locale;
       }
     }
@@ -1891,13 +1852,13 @@ describe('ReactIncremental', () => {
         route: PropTypes.string,
       };
       render() {
-        ops.push('ShowRoute ' + JSON.stringify(this.context));
+        ReactNoop.yield('ShowRoute ' + JSON.stringify(this.context));
         return this.context.route;
       }
     }
 
     function ShowBoth(props, context) {
-      ops.push('ShowBoth ' + JSON.stringify(context));
+      ReactNoop.yield('ShowBoth ' + JSON.stringify(context));
       return `${context.route} in ${context.locale}`;
     }
     ShowBoth.contextTypes = {
@@ -1907,14 +1868,14 @@ describe('ReactIncremental', () => {
 
     class ShowNeither extends React.Component {
       render() {
-        ops.push('ShowNeither ' + JSON.stringify(this.context));
+        ReactNoop.yield('ShowNeither ' + JSON.stringify(this.context));
         return null;
       }
     }
 
     class Indirection extends React.Component {
       render() {
-        ops.push('Indirection ' + JSON.stringify(this.context));
+        ReactNoop.yield('Indirection ' + JSON.stringify(this.context));
         return [
           <ShowLocale key="a" />,
           <ShowRoute key="b" />,
@@ -1927,7 +1888,6 @@ describe('ReactIncremental', () => {
       }
     }
 
-    ops.length = 0;
     ReactNoop.render(
       <Intl locale="fr">
         <ShowLocale />
@@ -1936,18 +1896,18 @@ describe('ReactIncremental', () => {
         </div>
       </Intl>,
     );
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() =>
+      expect(ReactNoop).toFlushAndYield([
+        'Intl {}',
+        'ShowLocale {"locale":"fr"}',
+        'ShowBoth {"locale":"fr"}',
+      ]),
+    ).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Intl, ShowBoth, ShowLocale',
       {withoutStack: true},
     );
-    expect(ops).toEqual([
-      'Intl {}',
-      'ShowLocale {"locale":"fr"}',
-      'ShowBoth {"locale":"fr"}',
-    ]);
 
-    ops.length = 0;
     ReactNoop.render(
       <Intl locale="de">
         <ShowLocale />
@@ -1956,14 +1916,12 @@ describe('ReactIncremental', () => {
         </div>
       </Intl>,
     );
-    ReactNoop.flush();
-    expect(ops).toEqual([
+    expect(ReactNoop).toFlushAndYield([
       'Intl {}',
       'ShowLocale {"locale":"de"}',
       'ShowBoth {"locale":"de"}',
     ]);
 
-    ops.length = 0;
     ReactNoop.render(
       <Intl locale="sv">
         <ShowLocale />
@@ -1972,10 +1930,8 @@ describe('ReactIncremental', () => {
         </div>
       </Intl>,
     );
-    ReactNoop.flushDeferredPri(15);
-    expect(ops).toEqual(['Intl {}']);
+    expect(ReactNoop).toFlushAndYieldThrough(['Intl {}']);
 
-    ops.length = 0;
     ReactNoop.render(
       <Intl locale="en">
         <ShowLocale />
@@ -1985,26 +1941,27 @@ describe('ReactIncremental', () => {
         <ShowBoth />
       </Intl>,
     );
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() =>
+      expect(ReactNoop).toFlushAndYield([
+        'ShowLocale {"locale":"sv"}',
+        'ShowBoth {"locale":"sv"}',
+        'Intl {}',
+        'ShowLocale {"locale":"en"}',
+        'Router {}',
+        'Indirection {}',
+        'ShowLocale {"locale":"en"}',
+        'ShowRoute {"route":"/about"}',
+        'ShowNeither {}',
+        'Intl {}',
+        'ShowBoth {"locale":"ru","route":"/about"}',
+        'ShowBoth {"locale":"en","route":"/about"}',
+        'ShowBoth {"locale":"en"}',
+      ]),
+    ).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Router, ShowRoute',
       {withoutStack: true},
     );
-    expect(ops).toEqual([
-      'ShowLocale {"locale":"sv"}',
-      'ShowBoth {"locale":"sv"}',
-      'Intl {}',
-      'ShowLocale {"locale":"en"}',
-      'Router {}',
-      'Indirection {}',
-      'ShowLocale {"locale":"en"}',
-      'ShowRoute {"route":"/about"}',
-      'ShowNeither {}',
-      'Intl {}',
-      'ShowBoth {"locale":"ru","route":"/about"}',
-      'ShowBoth {"locale":"en","route":"/about"}',
-      'ShowBoth {"locale":"en"}',
-    ]);
   });
 
   it('does not leak own context into context provider', () => {
@@ -2029,7 +1986,7 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Recurse />);
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Recurse',
       {withoutStack: true},
@@ -2066,7 +2023,7 @@ describe('ReactIncremental', () => {
     };
 
     ReactNoop.render(<Recurse />);
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Recurse',
       {withoutStack: true},
@@ -2080,8 +2037,6 @@ describe('ReactIncremental', () => {
   });
 
   it('provides context when reusing work', () => {
-    const ops = [];
-
     class Intl extends React.Component {
       static childContextTypes = {
         locale: PropTypes.string,
@@ -2092,7 +2047,7 @@ describe('ReactIncremental', () => {
         };
       }
       render() {
-        ops.push('Intl ' + JSON.stringify(this.context));
+        ReactNoop.yield('Intl ' + JSON.stringify(this.context));
         return this.props.children;
       }
     }
@@ -2102,12 +2057,11 @@ describe('ReactIncremental', () => {
         locale: PropTypes.string,
       };
       render() {
-        ops.push('ShowLocale ' + JSON.stringify(this.context));
+        ReactNoop.yield('ShowLocale ' + JSON.stringify(this.context));
         return this.context.locale;
       }
     }
 
-    ops.length = 0;
     ReactNoop.render(
       <Intl locale="fr">
         <ShowLocale />
@@ -2120,24 +2074,23 @@ describe('ReactIncremental', () => {
         <ShowLocale />
       </Intl>,
     );
-    ReactNoop.flushDeferredPri(40);
-    expect(ops).toEqual([
+    expect(ReactNoop).toFlushAndYieldThrough([
       'Intl {}',
       'ShowLocale {"locale":"fr"}',
       'ShowLocale {"locale":"fr"}',
     ]);
 
-    ops.length = 0;
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() =>
+      expect(ReactNoop).toFlushAndYield([
+        'ShowLocale {"locale":"fr"}',
+        'Intl {}',
+        'ShowLocale {"locale":"ru"}',
+      ]),
+    ).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Intl, ShowLocale',
       {withoutStack: true},
     );
-    expect(ops).toEqual([
-      'ShowLocale {"locale":"fr"}',
-      'Intl {}',
-      'ShowLocale {"locale":"ru"}',
-    ]);
   });
 
   it('reads context when setState is below the provider', () => {
@@ -2212,7 +2165,7 @@ describe('ReactIncremental', () => {
         </IndirectionFn>
       </Intl>,
     );
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Intl, ShowLocaleClass, ShowLocaleFn',
       {withoutStack: true},
@@ -2228,7 +2181,7 @@ describe('ReactIncremental', () => {
 
     ops.length = 0;
     statefulInst.setState({x: 1});
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     // All work has been memoized because setState()
     // happened below the context and could not have affected it.
     expect(ops).toEqual([]);
@@ -2304,7 +2257,7 @@ describe('ReactIncremental', () => {
         </IndirectionFn>
       </Stateful>,
     );
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Intl, ShowLocaleClass, ShowLocaleFn',
       {withoutStack: true},
@@ -2320,7 +2273,7 @@ describe('ReactIncremental', () => {
 
     ops.length = 0;
     statefulInst.setState({locale: 'gr'});
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ops).toEqual([
       // Intl is below setState() so it might have been
       // affected by it. Therefore we re-render and recompute
@@ -2373,7 +2326,7 @@ describe('ReactIncremental', () => {
 
     // Init
     ReactNoop.render(<Root />);
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Child',
       {withoutStack: true},
@@ -2381,7 +2334,7 @@ describe('ReactIncremental', () => {
 
     // Trigger an update in the middle of the tree
     instance.setState({});
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
   });
 
   it('maintains the correct context when unwinding due to an error in render', () => {
@@ -2423,7 +2376,7 @@ describe('ReactIncremental', () => {
 
     // Init
     ReactNoop.render(<Root />);
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: ContextProvider',
       {withoutStack: true},
@@ -2434,7 +2387,7 @@ describe('ReactIncremental', () => {
     instance.setState({
       throwError: true,
     });
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Error boundaries should implement getDerivedStateFromError()',
       {withoutStack: true},
     );
@@ -2472,7 +2425,7 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<MyComponent />);
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       [
         'componentWillReceiveProps: Please update the following components ' +
           'to use static getDerivedStateFromProps instead: MyComponent',
@@ -2543,7 +2496,7 @@ describe('ReactIncremental', () => {
     // Initial render of the entire tree.
     // Renders: Root, Middle, FirstChild, SecondChild
     ReactNoop.render(<Root>A</Root>);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     expect(renderCounter).toBe(1);
 
@@ -2565,7 +2518,7 @@ describe('ReactIncremental', () => {
     // The in-progress child content will bailout.
     // Renders: Root, Middle, FirstChild, SecondChild
     ReactNoop.render(<Root>B</Root>);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
 
     // At this point the higher priority render has completed.
     // Since FirstChild props didn't change, sCU returned false.
@@ -2622,14 +2575,14 @@ describe('ReactIncremental', () => {
       </TopContextProvider>,
     );
 
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Child, TopContextProvider',
       {withoutStack: true},
     );
     expect(rendered).toEqual(['count:0']);
     instance.updateCount();
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(rendered).toEqual(['count:0', 'count:1']);
   });
 
@@ -2684,14 +2637,14 @@ describe('ReactIncremental', () => {
       </TopContextProvider>,
     );
 
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Child, MiddleContextProvider, TopContextProvider',
       {withoutStack: true},
     );
     expect(rendered).toEqual(['count:0']);
     instance.updateCount();
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(rendered).toEqual(['count:0', 'count:1']);
   });
 
@@ -2755,14 +2708,14 @@ describe('ReactIncremental', () => {
       </TopContextProvider>,
     );
 
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Child, MiddleContextProvider, TopContextProvider',
       {withoutStack: true},
     );
     expect(rendered).toEqual(['count:0']);
     instance.updateCount();
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(rendered).toEqual(['count:0']);
   });
 
@@ -2836,17 +2789,17 @@ describe('ReactIncremental', () => {
       </TopContextProvider>,
     );
 
-    expect(ReactNoop.flush).toWarnDev(
+    expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
       'Legacy context API has been detected within a strict-mode tree: \n\n' +
         'Please update the following components: Child, MiddleContextProvider, TopContextProvider',
       {withoutStack: true},
     );
     expect(rendered).toEqual(['count:0, name:brian']);
     topInstance.updateCount();
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(rendered).toEqual(['count:0, name:brian']);
     middleInstance.updateName('not brian');
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(rendered).toEqual([
       'count:0, name:brian',
       'count:1, name:not brian',
@@ -2865,12 +2818,12 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Parent step={1} />);
-    ReactNoop.flushThrough(['Parent: 1']);
+    expect(ReactNoop).toFlushAndYieldThrough(['Parent: 1']);
 
     // Interrupt at same priority
     ReactNoop.render(<Parent step={2} />);
 
-    expect(ReactNoop.flush()).toEqual(['Child: 1', 'Parent: 2', 'Child: 2']);
+    expect(ReactNoop).toFlushAndYield(['Child: 1', 'Parent: 2', 'Child: 2']);
   });
 
   it('does not interrupt for update at lower priority', () => {
@@ -2885,13 +2838,13 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Parent step={1} />);
-    ReactNoop.flushThrough(['Parent: 1']);
+    expect(ReactNoop).toFlushAndYieldThrough(['Parent: 1']);
 
     // Interrupt at lower priority
     ReactNoop.expire(2000);
     ReactNoop.render(<Parent step={2} />);
 
-    expect(ReactNoop.flush()).toEqual(['Child: 1', 'Parent: 2', 'Child: 2']);
+    expect(ReactNoop).toFlushAndYield(['Child: 1', 'Parent: 2', 'Child: 2']);
   });
 
   it('does interrupt for update at higher priority', () => {
@@ -2906,15 +2859,15 @@ describe('ReactIncremental', () => {
     }
 
     ReactNoop.render(<Parent step={1} />);
-    ReactNoop.flushThrough(['Parent: 1']);
+    expect(ReactNoop).toFlushAndYieldThrough(['Parent: 1']);
 
     // Interrupt at higher priority
     expect(
       ReactNoop.flushSync(() => ReactNoop.render(<Parent step={2} />)),
     ).toEqual(['Parent: 2', 'Child: 2']);
-    ReactNoop.clearYields();
+    expect(ReactNoop).toHaveYielded(['Parent: 2', 'Child: 2']);
 
-    expect(ReactNoop.flush()).toEqual([]);
+    expect(ReactNoop).toFlushAndYield([]);
   });
 
   // We don't currently use fibers as keys. Re-enable this test if we
@@ -2936,7 +2889,7 @@ describe('ReactIncremental', () => {
         }
       }
       ReactNoop.render(<Boundary />);
-      ReactNoop.flush();
+      expect(ReactNoop).toFlushWithoutYielding();
     }
 
     // First, verify that this code path normally receives Fibers as keys,

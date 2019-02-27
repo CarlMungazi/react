@@ -306,7 +306,7 @@ describe('ReactIncrementalTriangle', () => {
       } else {
         ReactNoop.render(<App remainingDepth={MAX_DEPTH} key={keyCounter++} />);
       }
-      ReactNoop.flush();
+      ReactNoop.unstable_flushWithoutYielding();
       assertConsistentTree();
       return appInstance;
     }
@@ -385,10 +385,10 @@ describe('ReactIncrementalTriangle', () => {
         ReactNoop.flushSync(() => {
           switch (action.type) {
             case FLUSH:
-              ReactNoop.flushUnitsOfWork(action.unitsOfWork);
+              ReactNoop.unstable_flushNumberOfYields(action.unitsOfWork);
               break;
             case FLUSH_ALL:
-              ReactNoop.flush();
+              ReactNoop.unstable_flushWithoutYielding();
               break;
             case STEP:
               ReactNoop.deferredUpdates(() => {
@@ -430,7 +430,7 @@ describe('ReactIncrementalTriangle', () => {
         assertConsistentTree(activeLeafIndices);
       }
       // Flush remaining work
-      ReactNoop.flush();
+      ReactNoop.unstable_flushWithoutYielding();
       assertConsistentTree(activeLeafIndices, expectedCounterAtEnd);
     }
 

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -24,6 +24,8 @@ describe('ReactCache', () => {
   beforeEach(() => {
     jest.resetModules();
 
+    let currentPriorityLevel = 3;
+
     jest.mock('scheduler', () => {
       let callbacks = [];
       return {
@@ -37,6 +39,26 @@ describe('ReactCache', () => {
             const callback = callbacks.pop();
             callback();
           }
+        },
+
+        unstable_ImmediatePriority: 1,
+        unstable_UserBlockingPriority: 2,
+        unstable_NormalPriority: 3,
+        unstable_LowPriority: 4,
+        unstable_IdlePriority: 5,
+
+        unstable_runWithPriority(priorityLevel, fn) {
+          const prevPriorityLevel = currentPriorityLevel;
+          currentPriorityLevel = priorityLevel;
+          try {
+            return fn();
+          } finally {
+            currentPriorityLevel = prevPriorityLevel;
+          }
+        },
+
+        unstable_getCurrentPriorityLevel() {
+          return currentPriorityLevel;
         },
       };
     });

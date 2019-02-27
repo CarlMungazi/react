@@ -21,6 +21,12 @@ import type {ReactNodeList} from 'shared/ReactTypes';
 import {createPortal} from 'shared/ReactPortal';
 import expect from 'expect';
 import {REACT_FRAGMENT_TYPE, REACT_ELEMENT_TYPE} from 'shared/ReactSymbols';
+import warningWithoutStack from 'shared/warningWithoutStack';
+
+// for .act's return value
+type Thenable = {
+  then(resolve: () => mixed, reject?: () => mixed): mixed,
+};
 
 type Container = {
   rootID: string,
@@ -47,6 +53,7 @@ if (__DEV__) {
 function createReactNoop(reconciler: Function, useMutation: boolean) {
   let scheduledCallback = null;
   let scheduledCallbackTimeout = -1;
+  let scheduledPassiveCallback = null;
   let instanceCounter = 0;
   let hostDiffCounter = 0;
   let hostUpdateCounter = 0;
@@ -338,6 +345,21 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     scheduleTimeout: setTimeout,
     cancelTimeout: clearTimeout,
     noTimeout: -1,
+    schedulePassiveEffects(callback) {
+      if (scheduledCallback) {
+        throw new Error(
+          'Scheduling a callback twice is excessive. Instead, keep track of ' +
+            'whether the callback has already been scheduled.',
+        );
+      }
+      scheduledPassiveCallback = callback;
+    },
+    cancelPassiveEffects() {
+      if (scheduledPassiveCallback === null) {
+        throw new Error('No passive effects callback is scheduled.');
+      }
+      scheduledPassiveCallback = null;
+    },
 
     prepareForCommit(): void {},
 
@@ -512,47 +534,69 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
   const roots = new Map();
   const DEFAULT_ROOT_ID = '<default>';
 
-  let yieldedValues = null;
-
-  let didYield;
-  let unitsRemaining;
+  let yieldedValues: Array<mixed> = [];
+  let didStop: boolean = false;
+  let expectedNumberOfYields: number = -1;
 
   function shouldYield() {
     if (
-      scheduledCallbackTimeout === -1 ||
-      elapsedTimeInMs > scheduledCallbackTimeout
+      expectedNumberOfYields !== -1 &&
+      yieldedValues.length >= expectedNumberOfYields &&
+      (scheduledCallbackTimeout === -1 ||
+        elapsedTimeInMs < scheduledCallbackTimeout)
     ) {
-      return false;
-    } else {
-      if (didYield || yieldedValues !== null) {
-        return true;
-      }
-      if (unitsRemaining-- > 0) {
-        return false;
-      }
-      didYield = true;
+      // We yielded at least as many values as expected. Stop rendering.
+      didStop = true;
       return true;
+    }
+    // Keep rendering.
+    return false;
+  }
+
+  function flushAll(): Array<mixed> {
+    yieldedValues = [];
+    while (scheduledCallback !== null) {
+      const cb = scheduledCallback;
+      scheduledCallback = null;
+      const didTimeout =
+        scheduledCallbackTimeout !== -1 &&
+        scheduledCallbackTimeout < elapsedTimeInMs;
+      cb(didTimeout);
+    }
+    const values = yieldedValues;
+    yieldedValues = [];
+    return values;
+  }
+
+  function flushNumberOfYields(count: number): Array<mixed> {
+    expectedNumberOfYields = count;
+    didStop = false;
+    yieldedValues = [];
+    try {
+      while (scheduledCallback !== null && !didStop) {
+        const cb = scheduledCallback;
+        scheduledCallback = null;
+        const didTimeout =
+          scheduledCallbackTimeout !== -1 &&
+          scheduledCallbackTimeout < elapsedTimeInMs;
+        cb(didTimeout);
+      }
+      return yieldedValues;
+    } finally {
+      expectedNumberOfYields = -1;
+      didStop = false;
+      yieldedValues = [];
     }
   }
 
-  function* flushUnitsOfWork(n: number): Generator<Array<mixed>, void, void> {
-    unitsRemaining = n + 1;
-    didYield = false;
-    try {
-      while (!didYield && scheduledCallback !== null) {
-        let cb = scheduledCallback;
-        scheduledCallback = null;
-        cb();
-        if (yieldedValues !== null) {
-          const values = yieldedValues;
-          yieldedValues = null;
-          yield values;
-        }
-      }
-    } finally {
-      unitsRemaining = -1;
-      didYield = false;
-    }
+  function yieldValue(value: mixed): void {
+    yieldedValues.push(value);
+  }
+
+  function clearYields(): Array<mixed> {
+    const values = yieldedValues;
+    yieldedValues = [];
+    return values;
   }
 
   function childToJSX(child, text) {
@@ -719,62 +763,14 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
       return NoopRenderer.findHostInstance(component);
     },
 
-    flushDeferredPri(timeout: number = Infinity): Array<mixed> {
-      // The legacy version of this function decremented the timeout before
-      // returning the new time.
-      // TODO: Convert tests to use flushUnitsOfWork or flushAndYield instead.
-      const n = timeout / 5 - 1;
-
-      let values = [];
-      // eslint-disable-next-line no-for-of-loops/no-for-of-loops
-      for (const value of flushUnitsOfWork(n)) {
-        values.push(...value);
-      }
-      return values;
-    },
-
-    flush(): Array<mixed> {
-      return ReactNoop.flushUnitsOfWork(Infinity);
-    },
-
-    flushAndYield(
-      unitsOfWork: number = Infinity,
-    ): Generator<Array<mixed>, void, void> {
-      return flushUnitsOfWork(unitsOfWork);
-    },
-
-    flushUnitsOfWork(n: number): Array<mixed> {
-      let values = yieldedValues || [];
-      yieldedValues = null;
-      // eslint-disable-next-line no-for-of-loops/no-for-of-loops
-      for (const value of flushUnitsOfWork(n)) {
-        values.push(...value);
-      }
-      return values;
-    },
-
-    flushThrough(expected: Array<mixed>): void {
-      let actual = [];
-      if (expected.length !== 0) {
-        // eslint-disable-next-line no-for-of-loops/no-for-of-loops
-        for (const value of flushUnitsOfWork(Infinity)) {
-          actual.push(...value);
-          if (actual.length >= expected.length) {
-            break;
-          }
-        }
-      }
-      expect(actual).toEqual(expected);
-    },
+    // TODO: Should only be used via a Jest plugin (like we do with the
+    // test renderer).
+    unstable_flushWithoutYielding: flushAll,
+    unstable_flushNumberOfYields: flushNumberOfYields,
+    unstable_clearYields: clearYields,
 
     flushNextYield(): Array<mixed> {
-      let actual = null;
-      // eslint-disable-next-line no-for-of-loops/no-for-of-loops
-      for (const value of flushUnitsOfWork(Infinity)) {
-        actual = value;
-        break;
-      }
-      return actual !== null ? actual : [];
+      return flushNumberOfYields(1);
     },
 
     flushWithHostCounters(
@@ -792,7 +788,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
       hostUpdateCounter = 0;
       hostCloneCounter = 0;
       try {
-        ReactNoop.flush();
+        flushAll();
         return useMutation
           ? {
               hostDiffCounter,
@@ -819,22 +815,10 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     },
 
     flushExpired(): Array<mixed> {
-      return ReactNoop.flushUnitsOfWork(0);
+      return flushNumberOfYields(0);
     },
 
-    yield(value: mixed) {
-      if (yieldedValues === null) {
-        yieldedValues = [value];
-      } else {
-        yieldedValues.push(value);
-      }
-    },
-
-    clearYields() {
-      const values = yieldedValues;
-      yieldedValues = null;
-      return values;
-    },
+    yield: yieldValue,
 
     hasScheduledCallback() {
       return !!scheduledCallback;
@@ -848,10 +832,57 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
 
     interactiveUpdates: NoopRenderer.interactiveUpdates,
 
+    // maybe this should exist only in the test file
+    act(callback: () => void): Thenable {
+      // note: keep these warning messages in sync with
+      // ReactTestRenderer.js and ReactTestUtils.js
+      let result = NoopRenderer.batchedUpdates(callback);
+      if (__DEV__) {
+        if (result !== undefined) {
+          let addendum;
+          if (result !== null && typeof result.then === 'function') {
+            addendum =
+              "\n\nIt looks like you wrote ReactNoop.act(async () => ...) or returned a Promise from it's callback. " +
+              'Putting asynchronous logic inside ReactNoop.act(...) is not supported.\n';
+          } else {
+            addendum = ' You returned: ' + result;
+          }
+          warningWithoutStack(
+            false,
+            'The callback passed to ReactNoop.act(...) function must not return anything.%s',
+            addendum,
+          );
+        }
+      }
+      ReactNoop.flushPassiveEffects();
+      // we want the user to not expect a return,
+      // but we want to warn if they use it like they can await on it.
+      return {
+        then() {
+          if (__DEV__) {
+            warningWithoutStack(
+              false,
+              'Do not await the result of calling ReactNoop.act(...), it is not a Promise.',
+            );
+          }
+        },
+      };
+    },
+
     flushSync(fn: () => mixed) {
       yieldedValues = [];
       NoopRenderer.flushSync(fn);
       return yieldedValues;
+    },
+
+    flushPassiveEffects() {
+      // Trick to flush passive effects without exposing an internal API:
+      // Create a throwaway root and schedule a dummy update on it.
+      const rootID = 'bloopandthenmoreletterstoavoidaconflict';
+      const container = {rootID: rootID, children: []};
+      rootContainers.set(rootID, container);
+      const root = NoopRenderer.createContainer(container, true, false);
+      NoopRenderer.updateContainer(null, root, null, null);
     },
 
     // Logs the current state of the tree.
@@ -966,7 +997,7 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
         _next: null,
       };
       root.firstBatch = batch;
-      const actual = ReactNoop.flush();
+      const actual = flushAll();
       expect(actual).toEqual(expectedFlush);
       return (expectedCommit: Array<mixed>) => {
         batch._defer = false;

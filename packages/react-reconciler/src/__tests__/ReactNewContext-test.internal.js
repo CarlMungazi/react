@@ -21,7 +21,6 @@ describe('ReactNewContext', () => {
     jest.resetModules();
     ReactFeatureFlags = require('shared/ReactFeatureFlags');
     ReactFeatureFlags.debugRenderPhaseSideEffectsForStrictMode = false;
-    ReactFeatureFlags.enableHooks = true;
     React = require('react');
     useContext = React.useContext;
     ReactNoop = require('react-noop-renderer');
@@ -39,8 +38,8 @@ describe('ReactNewContext', () => {
 
   function readContext(Context, observedBits) {
     const dispatcher =
-      React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner
-        .currentDispatcher;
+      React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED
+        .ReactCurrentDispatcher.current;
     return dispatcher.readContext(Context, observedBits);
   }
 
@@ -52,7 +51,15 @@ describe('ReactNewContext', () => {
     Context =>
       function Consumer(props) {
         const observedBits = props.unstable_observedBits;
-        const contextValue = useContext(Context, observedBits);
+        let contextValue;
+        expect(() => {
+          contextValue = useContext(Context, observedBits);
+        }).toWarnDev(
+          observedBits !== undefined
+            ? 'useContext() second argument is reserved for future use in React. ' +
+              `Passing it is not supported. You passed: ${observedBits}.`
+            : [],
+        );
         const render = props.children;
         return render(contextValue);
       },
@@ -60,7 +67,15 @@ describe('ReactNewContext', () => {
   sharedContextTests('useContext inside forwardRef component', Context =>
     React.forwardRef(function Consumer(props, ref) {
       const observedBits = props.unstable_observedBits;
-      const contextValue = useContext(Context, observedBits);
+      let contextValue;
+      expect(() => {
+        contextValue = useContext(Context, observedBits);
+      }).toWarnDev(
+        observedBits !== undefined
+          ? 'useContext() second argument is reserved for future use in React. ' +
+            `Passing it is not supported. You passed: ${observedBits}.`
+          : [],
+      );
       const render = props.children;
       return render(contextValue);
     }),
@@ -68,7 +83,15 @@ describe('ReactNewContext', () => {
   sharedContextTests('useContext inside memoized function component', Context =>
     React.memo(function Consumer(props) {
       const observedBits = props.unstable_observedBits;
-      const contextValue = useContext(Context, observedBits);
+      let contextValue;
+      expect(() => {
+        contextValue = useContext(Context, observedBits);
+      }).toWarnDev(
+        observedBits !== undefined
+          ? 'useContext() second argument is reserved for future use in React. ' +
+            `Passing it is not supported. You passed: ${observedBits}.`
+          : [],
+      );
       const render = props.children;
       return render(contextValue);
     }),
@@ -121,12 +144,12 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App value={2} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         expect(ReactNoop.getChildren()).toEqual([span('Result: 2')]);
 
         // Update
         ReactNoop.render(<App value={3} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         expect(ReactNoop.getChildren()).toEqual([span('Result: 3')]);
       });
 
@@ -179,7 +202,7 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App value={2} />);
-        expect(ReactNoop.flush()).toEqual([
+        expect(ReactNoop).toFlushAndYield([
           'App',
           'Provider',
           'Indirection',
@@ -191,7 +214,7 @@ describe('ReactNewContext', () => {
 
         // Update
         ReactNoop.render(<App value={3} />);
-        expect(ReactNoop.flush()).toEqual([
+        expect(ReactNoop).toFlushAndYield([
           'App',
           'Provider',
           'Consumer render prop',
@@ -248,7 +271,7 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App value={2} />);
-        expect(ReactNoop.flush()).toEqual([
+        expect(ReactNoop).toFlushAndYield([
           'App',
           'Provider',
           'Indirection',
@@ -260,7 +283,7 @@ describe('ReactNewContext', () => {
 
         // Update with the same context value
         ReactNoop.render(<App value={2} />);
-        expect(ReactNoop.flush()).toEqual([
+        expect(ReactNoop).toFlushAndYield([
           'App',
           'Provider',
           // Don't call render prop again
@@ -315,12 +338,12 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App value={2} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         expect(ReactNoop.getChildren()).toEqual([span('Result: 8')]);
 
         // Update
         ReactNoop.render(<App value={3} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         expect(ReactNoop.getChildren()).toEqual([span('Result: 12')]);
       });
 
@@ -359,7 +382,7 @@ describe('ReactNewContext', () => {
             </BarConsumer>
           </React.Fragment>,
         );
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
       });
 
       it('multiple consumers in different branches', () => {
@@ -410,7 +433,7 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App value={2} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         expect(ReactNoop.getChildren()).toEqual([
           span('Result: 4'),
           span('Result: 2'),
@@ -418,7 +441,7 @@ describe('ReactNewContext', () => {
 
         // Update
         ReactNoop.render(<App value={3} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         expect(ReactNoop.getChildren()).toEqual([
           span('Result: 6'),
           span('Result: 3'),
@@ -426,7 +449,7 @@ describe('ReactNewContext', () => {
 
         // Another update
         ReactNoop.render(<App value={4} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         expect(ReactNoop.getChildren()).toEqual([
           span('Result: 8'),
           span('Result: 4'),
@@ -482,7 +505,7 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App value={NaN} />);
-        expect(ReactNoop.flush()).toEqual([
+        expect(ReactNoop).toFlushAndYield([
           'App',
           'Provider',
           'Indirection',
@@ -494,7 +517,7 @@ describe('ReactNewContext', () => {
 
         // Update
         ReactNoop.render(<App value={NaN} />);
-        expect(ReactNoop.flush()).toEqual([
+        expect(ReactNoop).toFlushAndYield([
           'App',
           'Provider',
           // Consumer should not re-render again
@@ -548,7 +571,7 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App value="A" />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         expect(ReactNoop.getChildren()).toEqual([
           // The second provider should use the default value.
           span('Result: Does not unwind'),
@@ -623,7 +646,7 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App foo={1} bar={1} />);
-        expect(ReactNoop.flush()).toEqual(['Foo', 'Bar']);
+        expect(ReactNoop).toFlushAndYield(['Foo', 'Bar']);
         expect(ReactNoop.getChildren()).toEqual([
           span('Foo: 1'),
           span('Bar: 1'),
@@ -631,7 +654,7 @@ describe('ReactNewContext', () => {
 
         // Update only foo
         ReactNoop.render(<App foo={2} bar={1} />);
-        expect(ReactNoop.flush()).toEqual(['Foo']);
+        expect(ReactNoop).toFlushAndYield(['Foo']);
         expect(ReactNoop.getChildren()).toEqual([
           span('Foo: 2'),
           span('Bar: 1'),
@@ -639,7 +662,7 @@ describe('ReactNewContext', () => {
 
         // Update only bar
         ReactNoop.render(<App foo={2} bar={2} />);
-        expect(ReactNoop.flush()).toEqual(['Bar']);
+        expect(ReactNoop).toFlushAndYield(['Bar']);
         expect(ReactNoop.getChildren()).toEqual([
           span('Foo: 2'),
           span('Bar: 2'),
@@ -647,7 +670,7 @@ describe('ReactNewContext', () => {
 
         // Update both
         ReactNoop.render(<App foo={3} bar={3} />);
-        expect(ReactNoop.flush()).toEqual(['Foo', 'Bar']);
+        expect(ReactNoop).toFlushAndYield(['Foo', 'Bar']);
         expect(ReactNoop.getChildren()).toEqual([
           span('Foo: 3'),
           span('Bar: 3'),
@@ -740,7 +763,7 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App foo={1} bar={1} />);
-        expect(ReactNoop.flush()).toEqual(['Foo', 'Bar', 'Foo']);
+        expect(ReactNoop).toFlushAndYield(['Foo', 'Bar', 'Foo']);
         expect(ReactNoop.getChildren()).toEqual([
           span('Foo: 1'),
           span('Bar: 1'),
@@ -749,7 +772,7 @@ describe('ReactNewContext', () => {
 
         // Update only foo
         ReactNoop.render(<App foo={2} bar={1} />);
-        expect(ReactNoop.flush()).toEqual(['Foo', 'Foo']);
+        expect(ReactNoop).toFlushAndYield(['Foo', 'Foo']);
         expect(ReactNoop.getChildren()).toEqual([
           span('Foo: 2'),
           span('Bar: 1'),
@@ -758,7 +781,7 @@ describe('ReactNewContext', () => {
 
         // Update only bar
         ReactNoop.render(<App foo={2} bar={2} />);
-        expect(ReactNoop.flush()).toEqual(['Bar']);
+        expect(ReactNoop).toFlushAndYield(['Bar']);
         expect(ReactNoop.getChildren()).toEqual([
           span('Foo: 2'),
           span('Bar: 2'),
@@ -767,7 +790,7 @@ describe('ReactNewContext', () => {
 
         // Update both
         ReactNoop.render(<App foo={3} bar={3} />);
-        expect(ReactNoop.flush()).toEqual(['Foo', 'Bar', 'Foo']);
+        expect(ReactNoop).toFlushAndYield(['Foo', 'Bar', 'Foo']);
         expect(ReactNoop.getChildren()).toEqual([
           span('Foo: 3'),
           span('Bar: 3'),
@@ -809,11 +832,11 @@ describe('ReactNewContext', () => {
 
         // Initial mount
         ReactNoop.render(<App value={1} />);
-        expect(ReactNoop.flush()).toEqual(['Consumer render prop', 'Child']);
+        expect(ReactNoop).toFlushAndYield(['Consumer render prop', 'Child']);
         expect(ReactNoop.getChildren()).toEqual([span('Context: 1, Step: 0')]);
 
         child.setState({step: 1});
-        expect(ReactNoop.flush()).toEqual(['Child']);
+        expect(ReactNoop).toFlushAndYield(['Child']);
         expect(ReactNoop.getChildren()).toEqual([span('Context: 1, Step: 1')]);
       });
 
@@ -862,7 +885,7 @@ describe('ReactNewContext', () => {
 
         // Initial mount
         ReactNoop.render(<App value={1} />);
-        expect(ReactNoop.flush()).toEqual([
+        expect(ReactNoop).toFlushAndYield([
           'App',
           'PureIndirection',
           'ChildWithInlineRenderCallback',
@@ -874,13 +897,44 @@ describe('ReactNewContext', () => {
 
         // Update (bailout)
         ReactNoop.render(<App value={1} />);
-        expect(ReactNoop.flush()).toEqual(['App']);
+        expect(ReactNoop).toFlushAndYield(['App']);
         expect(ReactNoop.getChildren()).toEqual([span(1), span(1)]);
 
         // Update (no bailout)
         ReactNoop.render(<App value={2} />);
-        expect(ReactNoop.flush()).toEqual(['App', 'Consumer', 'Consumer']);
+        expect(ReactNoop).toFlushAndYield(['App', 'Consumer', 'Consumer']);
         expect(ReactNoop.getChildren()).toEqual([span(2), span(2)]);
+      });
+
+      it("context consumer doesn't bail out inside hidden subtree", () => {
+        const Context = React.createContext('dark');
+        const Consumer = getConsumer(Context);
+
+        function App({theme}) {
+          return (
+            <Context.Provider value={theme}>
+              <div hidden={true}>
+                <Consumer>{value => <Text text={value} />}</Consumer>
+              </div>
+            </Context.Provider>
+          );
+        }
+
+        ReactNoop.render(<App theme="dark" />);
+        expect(ReactNoop).toFlushAndYield(['dark']);
+        expect(ReactNoop.getChildrenAsJSX()).toEqual(
+          <div hidden={true}>
+            <span prop="dark" />
+          </div>,
+        );
+
+        ReactNoop.render(<App theme="light" />);
+        expect(ReactNoop).toFlushAndYield(['light']);
+        expect(ReactNoop.getChildrenAsJSX()).toEqual(
+          <div hidden={true}>
+            <span prop="light" />
+          </div>,
+        );
       });
 
       // This is a regression case for https://github.com/facebook/react/issues/12389.
@@ -914,11 +968,11 @@ describe('ReactNewContext', () => {
         }
 
         ReactNoop.render(<App reverse={false} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         ReactNoop.render(<App reverse={true} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
         ReactNoop.render(<App reverse={false} />);
-        ReactNoop.flush();
+        expect(ReactNoop).toFlushWithoutYielding();
       });
 
       // This is a regression case for https://github.com/facebook/react/issues/12686
@@ -971,14 +1025,14 @@ describe('ReactNewContext', () => {
         // Initial mount
         let inst;
         ReactNoop.render(<App ref={ref => (inst = ref)} />);
-        expect(ReactNoop.flush()).toEqual(['App']);
+        expect(ReactNoop).toFlushAndYield(['App']);
         expect(ReactNoop.getChildren()).toEqual([
           span('static 1'),
           span('static 2'),
         ]);
         // Update the first time
         inst.setState({step: 1});
-        expect(ReactNoop.flush()).toEqual(['App', 'Consumer']);
+        expect(ReactNoop).toFlushAndYield(['App', 'Consumer']);
         expect(ReactNoop.getChildren()).toEqual([
           span('static 1'),
           span('static 2'),
@@ -986,7 +1040,7 @@ describe('ReactNewContext', () => {
         ]);
         // Update the second time
         inst.setState({step: 2});
-        expect(ReactNoop.flush()).toEqual(['App', 'Consumer']);
+        expect(ReactNoop).toFlushAndYield(['App', 'Consumer']);
         expect(ReactNoop.getChildren()).toEqual([
           span('static 1'),
           span('static 2'),
@@ -1008,11 +1062,11 @@ describe('ReactNewContext', () => {
       }
 
       ReactNoop.render(<App value={1} />);
-      ReactNoop.flush();
+      expect(ReactNoop).toFlushWithoutYielding();
 
       // Update
       ReactNoop.render(<App value={2} />);
-      expect(ReactNoop.flush).toWarnDev(
+      expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
         'calculateChangedBits: Expected the return value to be a 31-bit ' +
           'integer. Instead received: 4294967295',
       );
@@ -1038,7 +1092,7 @@ describe('ReactNewContext', () => {
 
       ReactNoop.render(<App value={1} />);
       // Render past the Provider, but don't commit yet
-      ReactNoop.flushThrough(['Foo']);
+      expect(ReactNoop).toFlushAndYieldThrough(['Foo']);
 
       // Get a new copy of ReactNoop
       jest.resetModules();
@@ -1048,7 +1102,7 @@ describe('ReactNewContext', () => {
 
       // Render the provider again using a different renderer
       ReactNoop.render(<App value={1} />);
-      ReactNoop.flush();
+      expect(ReactNoop).toFlushAndYield(['Foo', 'Foo']);
 
       if (__DEV__) {
         expect(console.error.calls.argsFor(0)[0]).toContain(
@@ -1077,12 +1131,12 @@ describe('ReactNewContext', () => {
 
       // Initial mount
       ReactNoop.render(<App value={1} />);
-      expect(ReactNoop.flush()).toEqual(['App', 'Child']);
+      expect(ReactNoop).toFlushAndYield(['App', 'Child']);
       expect(ReactNoop.getChildren()).toEqual([span('Child')]);
 
       // Update
       ReactNoop.render(<App value={1} />);
-      expect(ReactNoop.flush()).toEqual([
+      expect(ReactNoop).toFlushAndYield([
         'App',
         // Child does not re-render
       ]);
@@ -1137,7 +1191,7 @@ describe('ReactNewContext', () => {
         </LegacyProvider>,
       );
       expect(() => {
-        expect(ReactNoop.flush()).toEqual(['LegacyProvider', 'App', 'Child']);
+        expect(ReactNoop).toFlushAndYield(['LegacyProvider', 'App', 'Child']);
       }).toWarnDev(
         'Legacy context API has been detected within a strict-mode tree: \n\n' +
           'Please update the following components: LegacyProvider',
@@ -1147,17 +1201,17 @@ describe('ReactNewContext', () => {
 
       // Update App with same value (should bail out)
       appRef.current.setState({value: 1});
-      expect(ReactNoop.flush()).toEqual(['App']);
+      expect(ReactNoop).toFlushAndYield(['App']);
       expect(ReactNoop.getChildren()).toEqual([span('Child')]);
 
       // Update LegacyProvider (should not bail out)
       legacyProviderRef.current.setState({value: 1});
-      expect(ReactNoop.flush()).toEqual(['LegacyProvider', 'App', 'Child']);
+      expect(ReactNoop).toFlushAndYield(['LegacyProvider', 'App', 'Child']);
       expect(ReactNoop.getChildren()).toEqual([span('Child')]);
 
       // Update App with same value (should bail out)
       appRef.current.setState({value: 1});
-      expect(ReactNoop.flush()).toEqual(['App']);
+      expect(ReactNoop).toFlushAndYield(['App']);
       expect(ReactNoop.getChildren()).toEqual([span('Child')]);
     });
   });
@@ -1167,7 +1221,7 @@ describe('ReactNewContext', () => {
       spyOnDev(console, 'error');
       const Context = React.createContext(0);
       ReactNoop.render(<Context.Consumer />);
-      expect(ReactNoop.flush).toThrow('render is not a function');
+      expect(ReactNoop).toFlushAndThrow('render is not a function');
       if (__DEV__) {
         expect(console.error.calls.argsFor(0)[0]).toContain(
           'A context consumer was rendered with multiple children, or a child ' +
@@ -1213,17 +1267,17 @@ describe('ReactNewContext', () => {
       }
 
       ReactNoop.render(<App foo={1} bar={1} />);
-      expect(ReactNoop.flush()).toEqual(['Foo: 1, Bar: 1']);
+      expect(ReactNoop).toFlushAndYield(['Foo: 1, Bar: 1']);
       expect(ReactNoop.getChildren()).toEqual([span('Foo: 1, Bar: 1')]);
 
       // Update foo
       ReactNoop.render(<App foo={2} bar={1} />);
-      expect(ReactNoop.flush()).toEqual(['Foo: 2, Bar: 1']);
+      expect(ReactNoop).toFlushAndYield(['Foo: 2, Bar: 1']);
       expect(ReactNoop.getChildren()).toEqual([span('Foo: 2, Bar: 1')]);
 
       // Update bar
       ReactNoop.render(<App foo={2} bar={2} />);
-      expect(ReactNoop.flush()).toEqual(['Foo: 2, Bar: 2']);
+      expect(ReactNoop).toFlushAndYield(['Foo: 2, Bar: 2']);
       expect(ReactNoop.getChildren()).toEqual([span('Foo: 2, Bar: 2')]);
     });
 
@@ -1259,17 +1313,108 @@ describe('ReactNewContext', () => {
       // Initial mount
       let inst;
       ReactNoop.render(<App value={1} ref={ref => (inst = ref)} />);
-      expect(ReactNoop.flush()).toEqual(['App', 'App#renderConsumer']);
+      expect(ReactNoop).toFlushAndYield(['App', 'App#renderConsumer']);
       expect(ReactNoop.getChildren()).toEqual([span('hello')]);
 
       // Update
       inst.setState({text: 'goodbye'});
-      expect(ReactNoop.flush()).toEqual(['App', 'App#renderConsumer']);
+      expect(ReactNoop).toFlushAndYield(['App', 'App#renderConsumer']);
       expect(ReactNoop.getChildren()).toEqual([span('goodbye')]);
     });
   });
 
   describe('readContext', () => {
+    it('can read the same context multiple times in the same function', () => {
+      const Context = React.createContext({foo: 0, bar: 0, baz: 0}, (a, b) => {
+        let result = 0;
+        if (a.foo !== b.foo) {
+          result |= 0b001;
+        }
+        if (a.bar !== b.bar) {
+          result |= 0b010;
+        }
+        if (a.baz !== b.baz) {
+          result |= 0b100;
+        }
+        return result;
+      });
+
+      function Provider(props) {
+        return (
+          <Context.Provider
+            value={{foo: props.foo, bar: props.bar, baz: props.baz}}>
+            {props.children}
+          </Context.Provider>
+        );
+      }
+
+      function FooAndBar() {
+        const {foo} = readContext(Context, 0b001);
+        const {bar} = readContext(Context, 0b010);
+        return <Text text={`Foo: ${foo}, Bar: ${bar}`} />;
+      }
+
+      function Baz() {
+        const {baz} = readContext(Context, 0b100);
+        return <Text text={'Baz: ' + baz} />;
+      }
+
+      class Indirection extends React.Component {
+        shouldComponentUpdate() {
+          return false;
+        }
+        render() {
+          return this.props.children;
+        }
+      }
+
+      function App(props) {
+        return (
+          <Provider foo={props.foo} bar={props.bar} baz={props.baz}>
+            <Indirection>
+              <Indirection>
+                <FooAndBar />
+              </Indirection>
+              <Indirection>
+                <Baz />
+              </Indirection>
+            </Indirection>
+          </Provider>
+        );
+      }
+
+      ReactNoop.render(<App foo={1} bar={1} baz={1} />);
+      expect(ReactNoop).toFlushAndYield(['Foo: 1, Bar: 1', 'Baz: 1']);
+      expect(ReactNoop.getChildren()).toEqual([
+        span('Foo: 1, Bar: 1'),
+        span('Baz: 1'),
+      ]);
+
+      // Update only foo
+      ReactNoop.render(<App foo={2} bar={1} baz={1} />);
+      expect(ReactNoop).toFlushAndYield(['Foo: 2, Bar: 1']);
+      expect(ReactNoop.getChildren()).toEqual([
+        span('Foo: 2, Bar: 1'),
+        span('Baz: 1'),
+      ]);
+
+      // Update only bar
+      ReactNoop.render(<App foo={2} bar={2} baz={1} />);
+      expect(ReactNoop).toFlushAndYield(['Foo: 2, Bar: 2']);
+      expect(ReactNoop.getChildren()).toEqual([
+        span('Foo: 2, Bar: 2'),
+        span('Baz: 1'),
+      ]);
+
+      // Update only baz
+      ReactNoop.render(<App foo={2} bar={2} baz={2} />);
+      expect(ReactNoop).toFlushAndYield(['Baz: 2']);
+      expect(ReactNoop.getChildren()).toEqual([
+        span('Foo: 2, Bar: 2'),
+        span('Baz: 2'),
+      ]);
+    });
+
     // Context consumer bails out on propagating "deep" updates when `value` hasn't changed.
     // However, it doesn't bail out from rendering if the component above it re-rendered anyway.
     // If we bailed out on referential equality, it would be confusing that you
@@ -1308,106 +1453,56 @@ describe('ReactNewContext', () => {
       // Initial mount
       let inst;
       ReactNoop.render(<App value={1} ref={ref => (inst = ref)} />);
-      expect(ReactNoop.flush()).toEqual(['App', 'App#renderConsumer']);
+      expect(ReactNoop).toFlushAndYield(['App', 'App#renderConsumer']);
       expect(ReactNoop.getChildren()).toEqual([span('hello')]);
 
       // Update
       inst.setState({text: 'goodbye'});
-      expect(ReactNoop.flush()).toEqual(['App', 'App#renderConsumer']);
+      expect(ReactNoop).toFlushAndYield(['App', 'App#renderConsumer']);
       expect(ReactNoop.getChildren()).toEqual([span('goodbye')]);
+    });
+
+    it('warns when reading context inside render phase class setState updater', () => {
+      const ThemeContext = React.createContext('light');
+
+      class Cls extends React.Component {
+        state = {};
+        render() {
+          this.setState(() => {
+            readContext(ThemeContext);
+          });
+          return null;
+        }
+      }
+
+      ReactNoop.render(<Cls />);
+      expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
+        [
+          'Context can only be read while React is rendering',
+          'Cannot update during an existing state transition',
+        ],
+        {
+          withoutStack: 1,
+        },
+      );
     });
   });
 
   describe('useContext', () => {
-    it('can use the same context multiple times in the same function', () => {
-      const Context = React.createContext({foo: 0, bar: 0, baz: 0}, (a, b) => {
-        let result = 0;
-        if (a.foo !== b.foo) {
-          result |= 0b001;
-        }
-        if (a.bar !== b.bar) {
-          result |= 0b010;
-        }
-        if (a.baz !== b.baz) {
-          result |= 0b100;
-        }
-        return result;
-      });
-
-      function Provider(props) {
-        return (
-          <Context.Provider
-            value={{foo: props.foo, bar: props.bar, baz: props.baz}}>
-            {props.children}
-          </Context.Provider>
-        );
+    it('warns on array.map(useContext)', () => {
+      const Context = React.createContext(0);
+      function Foo() {
+        return [Context].map(useContext);
       }
-
-      function FooAndBar() {
-        const {foo} = useContext(Context, 0b001);
-        const {bar} = useContext(Context, 0b010);
-        return <Text text={`Foo: ${foo}, Bar: ${bar}`} />;
-      }
-
-      function Baz() {
-        const {baz} = useContext(Context, 0b100);
-        return <Text text={'Baz: ' + baz} />;
-      }
-
-      class Indirection extends React.Component {
-        shouldComponentUpdate() {
-          return false;
-        }
-        render() {
-          return this.props.children;
-        }
-      }
-
-      function App(props) {
-        return (
-          <Provider foo={props.foo} bar={props.bar} baz={props.baz}>
-            <Indirection>
-              <Indirection>
-                <FooAndBar />
-              </Indirection>
-              <Indirection>
-                <Baz />
-              </Indirection>
-            </Indirection>
-          </Provider>
-        );
-      }
-
-      ReactNoop.render(<App foo={1} bar={1} baz={1} />);
-      expect(ReactNoop.flush()).toEqual(['Foo: 1, Bar: 1', 'Baz: 1']);
-      expect(ReactNoop.getChildren()).toEqual([
-        span('Foo: 1, Bar: 1'),
-        span('Baz: 1'),
-      ]);
-
-      // Update only foo
-      ReactNoop.render(<App foo={2} bar={1} baz={1} />);
-      expect(ReactNoop.flush()).toEqual(['Foo: 2, Bar: 1']);
-      expect(ReactNoop.getChildren()).toEqual([
-        span('Foo: 2, Bar: 1'),
-        span('Baz: 1'),
-      ]);
-
-      // Update only bar
-      ReactNoop.render(<App foo={2} bar={2} baz={1} />);
-      expect(ReactNoop.flush()).toEqual(['Foo: 2, Bar: 2']);
-      expect(ReactNoop.getChildren()).toEqual([
-        span('Foo: 2, Bar: 2'),
-        span('Baz: 1'),
-      ]);
-
-      // Update only baz
-      ReactNoop.render(<App foo={2} bar={2} baz={2} />);
-      expect(ReactNoop.flush()).toEqual(['Baz: 2']);
-      expect(ReactNoop.getChildren()).toEqual([
-        span('Foo: 2, Bar: 2'),
-        span('Baz: 2'),
-      ]);
+      ReactNoop.render(<Foo />);
+      expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
+        'useContext() second argument is reserved for future ' +
+          'use in React. Passing it is not supported. ' +
+          'You passed: 0.\n\n' +
+          'Did you call array.map(useContext)? ' +
+          'Calling Hooks inside a loop is not supported. ' +
+          'Learn more at https://fb.me/rules-of-hooks',
+      );
     });
 
     it('throws when used in a class component', () => {
@@ -1418,7 +1513,7 @@ describe('ReactNewContext', () => {
         }
       }
       ReactNoop.render(<Foo />);
-      expect(ReactNoop.flush).toThrow(
+      expect(ReactNoop).toFlushAndThrow(
         'Hooks can only be called inside the body of a function component.',
       );
     });
@@ -1429,7 +1524,7 @@ describe('ReactNewContext', () => {
         return useContext(Context.Consumer);
       }
       ReactNoop.render(<Foo />);
-      expect(ReactNoop.flush).toWarnDev(
+      expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
         'Calling useContext(Context.Consumer) is not supported, may cause bugs, ' +
           'and will be removed in a future major release. ' +
           'Did you mean to call useContext(Context) instead?',
@@ -1443,7 +1538,7 @@ describe('ReactNewContext', () => {
         return null;
       }
       ReactNoop.render(<Foo />);
-      expect(ReactNoop.flush).toWarnDev(
+      expect(() => expect(ReactNoop).toFlushWithoutYielding()).toWarnDev(
         'Calling useContext(Context.Provider) is not supported. ' +
           'Did you mean to call useContext(Context) instead?',
       );
@@ -1485,12 +1580,12 @@ describe('ReactNewContext', () => {
       // Initial mount
       let inst;
       ReactNoop.render(<App value={1} ref={ref => (inst = ref)} />);
-      expect(ReactNoop.flush()).toEqual(['App', 'App#renderConsumer']);
+      expect(ReactNoop).toFlushAndYield(['App', 'App#renderConsumer']);
       expect(ReactNoop.getChildren()).toEqual([span('hello')]);
 
       // Update
       inst.setState({text: 'goodbye'});
-      expect(ReactNoop.flush()).toEqual(['App', 'App#renderConsumer']);
+      expect(ReactNoop).toFlushAndYield(['App', 'App#renderConsumer']);
       expect(ReactNoop.getChildren()).toEqual([span('goodbye')]);
     });
   });
@@ -1505,14 +1600,14 @@ describe('ReactNewContext', () => {
         <Context.Provider />
       </errorInCompletePhase>,
     );
-    expect(ReactNoop.flush).toThrow('Error in host config.');
+    expect(ReactNoop).toFlushAndThrow('Error in host config.');
 
     ReactNoop.render(
       <Context.Provider value={10}>
         <Context.Consumer>{value => <span prop={value} />}</Context.Consumer>
       </Context.Provider>,
     );
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
     expect(ReactNoop.getChildren()).toEqual([span(10)]);
   });
 
@@ -1596,6 +1691,7 @@ describe('ReactNewContext', () => {
           return false;
         }
         render() {
+          ReactNoop.yield();
           if (this.props.depth >= this.props.maxDepth) {
             return null;
           }
@@ -1673,10 +1769,10 @@ describe('ReactNewContext', () => {
         actions.forEach(action => {
           switch (action.type) {
             case FLUSH_ALL:
-              ReactNoop.flush();
+              ReactNoop.unstable_flushWithoutYielding();
               break;
             case FLUSH:
-              ReactNoop.flushUnitsOfWork(action.unitsOfWork);
+              ReactNoop.unstable_flushNumberOfYields(action.unitsOfWork);
               break;
             case UPDATE:
               finalExpectedValues = {
@@ -1691,7 +1787,7 @@ describe('ReactNewContext', () => {
           assertConsistentTree();
         });
 
-        ReactNoop.flush();
+        ReactNoop.unstable_flushWithoutYielding();
         assertConsistentTree(finalExpectedValues);
       }
 
@@ -1743,7 +1839,7 @@ Context fuzz tester error! Copy and paste the following line into the test suite
 
     expect(() => {
       ReactNoop.render(<Component />);
-      ReactNoop.flush();
+      expect(ReactNoop).toFlushWithoutYielding();
     }).toWarnDev(
       'Rendering <Context> directly is not supported and will be removed in ' +
         'a future major release. Did you mean to render <Context.Consumer> instead?',
@@ -1769,7 +1865,7 @@ Context fuzz tester error! Copy and paste the following line into the test suite
     }
 
     ReactNoop.render(<Component />);
-    ReactNoop.flush();
+    expect(ReactNoop).toFlushWithoutYielding();
   });
 
   it('should warn with an error message when using nested context consumers in DEV', () => {
@@ -1790,7 +1886,7 @@ Context fuzz tester error! Copy and paste the following line into the test suite
 
     expect(() => {
       ReactNoop.render(<Component />);
-      ReactNoop.flush();
+      expect(ReactNoop).toFlushWithoutYielding();
     }).toWarnDev(
       'Rendering <Context.Consumer.Consumer> is not supported and will be removed in ' +
         'a future major release. Did you mean to render <Context.Consumer> instead?',
@@ -1814,7 +1910,7 @@ Context fuzz tester error! Copy and paste the following line into the test suite
 
     expect(() => {
       ReactNoop.render(<Component />);
-      ReactNoop.flush();
+      expect(ReactNoop).toFlushWithoutYielding();
     }).toWarnDev(
       'Rendering <Context.Consumer.Provider> is not supported and will be removed in ' +
         'a future major release. Did you mean to render <Context.Provider> instead?',

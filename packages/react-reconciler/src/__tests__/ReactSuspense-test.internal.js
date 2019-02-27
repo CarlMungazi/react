@@ -3,6 +3,7 @@ let ReactTestRenderer;
 let ReactFeatureFlags;
 let ReactCache;
 let Suspense;
+let act;
 
 // let JestReact;
 
@@ -17,9 +18,9 @@ describe('ReactSuspense', () => {
     ReactFeatureFlags = require('shared/ReactFeatureFlags');
     ReactFeatureFlags.debugRenderPhaseSideEffectsForStrictMode = false;
     ReactFeatureFlags.replayFailedUnitOfWorkWithInvokeGuardedCallback = false;
-    ReactFeatureFlags.enableHooks = true;
     React = require('react');
     ReactTestRenderer = require('react-test-renderer');
+    act = ReactTestRenderer.act;
     // JestReact = require('jest-react');
     ReactCache = require('react-cache');
 
@@ -798,7 +799,7 @@ describe('ReactSuspense', () => {
       ]);
       expect(root).toMatchRenderedOutput('Tab: 0 + sibling');
 
-      setTab(1);
+      act(() => setTab(1));
       expect(ReactTestRenderer).toHaveYielded([
         'Suspend! [Tab: 1]',
         ' + sibling',
@@ -812,7 +813,7 @@ describe('ReactSuspense', () => {
       ]);
       expect(root).toMatchRenderedOutput('Tab: 1 + sibling');
 
-      setTab(2);
+      act(() => setTab(2));
       expect(ReactTestRenderer).toHaveYielded([
         'Suspend! [Tab: 2]',
         ' + sibling',
@@ -865,7 +866,7 @@ describe('ReactSuspense', () => {
       ]);
       expect(root).toMatchRenderedOutput('A:0');
 
-      setStep(1);
+      act(() => setStep(1));
       expect(ReactTestRenderer).toHaveYielded(['Suspend! [A:1]', 'Loading...']);
       expect(root).toMatchRenderedOutput('Loading...');
 
